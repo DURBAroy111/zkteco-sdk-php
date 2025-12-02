@@ -1,0 +1,20 @@
+{
+  "name": "durbaroy/zkteco-sdk-php",
+  "description": "Pure PHP SDK for ZKTeco attendance devices (UDP lower protocol).",
+  "type": "library",
+  "license": "MIT",
+  "authors": [
+    {
+      "name": "Durba Roy",
+      "email": "durbaroy97@gmail.com"
+    }
+  ],
+  "require": {
+    "php": ">=8.1"
+  },
+  "autoload": {
+    "psr-4": {
+      "DurbaRoy\\Zkteco\\": "src/"
+    }
+  }
+}
