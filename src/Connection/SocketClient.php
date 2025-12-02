@@ -11,7 +11,7 @@ class SocketClient
     /** @var resource|null */
     protected $socket = null;
 
-    public function __construct(string $ip, int $port = 4370, int $timeout = 3)
+    public function __construct(string $ip, int $port = 4370, int $timeout = 5)
     {
         $this->ip      = $ip;
         $this->port    = $port;
@@ -24,36 +24,31 @@ class SocketClient
             return;
         }
 
-        $this->socket = @socket_create(AF_INET, SOCK_DGRAM, SOL_UDP);
+        $address = "udp://{$this->ip}";
+        $errno   = 0;
+        $errstr  = '';
+
+        $this->socket = @fsockopen($address, $this->port, $errno, $errstr, $this->timeout);
+
         if (! $this->socket) {
-            throw new \RuntimeException('Unable to create UDP socket: ' . socket_strerror(socket_last_error()));
+            throw new \RuntimeException(
+                "Unable to connect to ZKTeco device {$this->ip}:{$this->port} - [{$errno}] {$errstr}"
+            );
         }
 
-        if (! @socket_connect($this->socket, $this->ip, $this->port)) {
-            $error = socket_strerror(socket_last_error($this->socket));
-            throw new \RuntimeException("Unable to connect to device {$this->ip}:{$this->port} - {$error}");
-        }
-
-        socket_set_option($this->socket, SOL_SOCKET, SO_RCVTIMEO, [
-            'sec'  => $this->timeout,
-            'usec' => 0,
-        ]);
-        socket_set_option($this->socket, SOL_SOCKET, SO_SNDTIMEO, [
-            'sec'  => $this->timeout,
-            'usec' => 0,
-        ]);
+        stream_set_timeout($this->socket, $this->timeout);
     }
 
     public function close(): void
     {
         if ($this->socket !== null) {
-            socket_close($this->socket);
+            fclose($this->socket);
             $this->socket = null;
         }
     }
 
     /**
-     * Send a raw binary packet and return raw binary response.
+     * Send raw binary packet and get raw binary response.
      */
     public function send(string $packet): string
     {
@@ -61,23 +56,25 @@ class SocketClient
             $this->connect();
         }
 
-        $len = strlen($packet);
-        $sent = @socket_write($this->socket, $packet, $len);
+        $written = @fwrite($this->socket, $packet);
 
-        if ($sent === false || $sent !== $len) {
-            $error = socket_strerror(socket_last_error($this->socket));
-            throw new \RuntimeException("Failed to write to socket: {$error}");
+        if ($written === false || $written !== strlen($packet)) {
+            throw new \RuntimeException('Failed to write to socket (UDP).');
         }
 
-        $buffer = '';
-        $bytesRead = @socket_recv($this->socket, $buffer, 8192, 0);
+        // read first chunk of response
+        $response = @fread($this->socket, 8192);
 
-        if ($bytesRead === false) {
-            $error = socket_strerror(socket_last_error($this->socket));
-            throw new \RuntimeException("Failed to read from socket: {$error}");
+        if ($response === false || $response === '') {
+            $meta = stream_get_meta_data($this->socket);
+            if (!empty($meta['timed_out'])) {
+                throw new \RuntimeException('Failed to read from socket: timed out waiting for device response.');
+            }
+
+            throw new \RuntimeException('Failed to read from socket: empty response from device.');
         }
 
-        return $buffer;
+        return $response;
     }
 
     public function __destruct()
