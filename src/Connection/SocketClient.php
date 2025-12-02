@@ -20,16 +20,16 @@ class SocketClient
 
     public function connect(): void
     {
-        if ($this->socket !== null) {
+        // If we already have a valid resource, reuse it.
+        if ($this->socket !== null && is_resource($this->socket)) {
             return;
         }
 
-        // TCP instead of UDP:
         $address = "tcp://{$this->ip}:{$this->port}";
         $errno   = 0;
         $errstr  = '';
 
-        $this->socket = @stream_socket_client(
+        $conn = @stream_socket_client(
             $address,
             $errno,
             $errstr,
@@ -37,21 +37,26 @@ class SocketClient
             STREAM_CLIENT_CONNECT
         );
 
-        if (! $this->socket) {
+        if ($conn === false) {
+            // Ensure we don't keep a bad value
+            $this->socket = null;
+
             throw new \RuntimeException(
                 "Unable to connect to ZKTeco device {$this->ip}:{$this->port} via TCP - [{$errno}] {$errstr}"
             );
         }
 
+        $this->socket = $conn;
         stream_set_timeout($this->socket, $this->timeout);
     }
 
     public function close(): void
     {
-        if ($this->socket !== null) {
+        if ($this->socket !== null && is_resource($this->socket)) {
             fclose($this->socket);
-            $this->socket = null;
         }
+
+        $this->socket = null;
     }
 
     /**
@@ -59,11 +64,11 @@ class SocketClient
      */
     public function send(string $packet): string
     {
-        if ($this->socket === null) {
+        if ($this->socket === null || !is_resource($this->socket)) {
             $this->connect();
         }
 
-        $total = strlen($packet);
+        $total   = strlen($packet);
         $written = 0;
 
         while ($written < $total) {
@@ -74,16 +79,19 @@ class SocketClient
             $written += $w;
         }
 
-        // Read 1 response frame (ZK packets are small; we can read once)
         $response = @fread($this->socket, 8192);
 
         if ($response === false || $response === '') {
             $meta = stream_get_meta_data($this->socket);
             if (!empty($meta['timed_out'])) {
-                throw new \RuntimeException('Failed to read from TCP socket: timed out waiting for device response.');
+                throw new \RuntimeException(
+                    'Failed to read from TCP socket: timed out waiting for device response.'
+                );
             }
 
-            throw new \RuntimeException('Failed to read from TCP socket: empty response from device.');
+            throw new \RuntimeException(
+                'Failed to read from TCP socket: empty response from device.'
+            );
         }
 
         return $response;
