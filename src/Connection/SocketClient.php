@@ -20,34 +20,27 @@ class SocketClient
 
     public function connect(): void
     {
-        // If we already have a valid resource, reuse it.
+        // Reuse existing valid resource
         if ($this->socket !== null && is_resource($this->socket)) {
             return;
         }
 
-        $address = "tcp://{$this->ip}:{$this->port}";
+        $address = "udp://{$this->ip}";
         $errno   = 0;
         $errstr  = '';
 
-        $conn = @stream_socket_client(
-            $address,
-            $errno,
-            $errstr,
-            $this->timeout,
-            STREAM_CLIENT_CONNECT
-        );
+        $conn = @fsockopen($address, $this->port, $errno, $errstr, $this->timeout);
 
         if ($conn === false) {
-            // Ensure we don't keep a bad value
             $this->socket = null;
 
             throw new \RuntimeException(
-                "Unable to connect to ZKTeco device {$this->ip}:{$this->port} via TCP - [{$errno}] {$errstr}"
+                "Unable to connect to ZKTeco device {$this->ip}:{$this->port} via UDP - [{$errno}] {$errstr}"
             );
         }
 
+        stream_set_timeout($conn, $this->timeout);
         $this->socket = $conn;
-        stream_set_timeout($this->socket, $this->timeout);
     }
 
     public function close(): void
@@ -60,7 +53,7 @@ class SocketClient
     }
 
     /**
-     * Send raw binary packet and get raw binary response (TCP).
+     * Send raw binary packet and get raw binary response (UDP).
      */
     public function send(string $packet): string
     {
@@ -68,29 +61,25 @@ class SocketClient
             $this->connect();
         }
 
-        $total   = strlen($packet);
-        $written = 0;
+        $written = @fwrite($this->socket, $packet);
 
-        while ($written < $total) {
-            $w = @fwrite($this->socket, substr($packet, $written));
-            if ($w === false || $w === 0) {
-                throw new \RuntimeException('Failed to write to TCP socket.');
-            }
-            $written += $w;
+        if ($written === false || $written !== strlen($packet)) {
+            throw new \RuntimeException('Failed to write to UDP socket.');
         }
 
         $response = @fread($this->socket, 8192);
 
         if ($response === false || $response === '') {
             $meta = stream_get_meta_data($this->socket);
+
             if (!empty($meta['timed_out'])) {
                 throw new \RuntimeException(
-                    'Failed to read from TCP socket: timed out waiting for device response.'
+                    'Failed to read from UDP socket: timed out waiting for device response.'
                 );
             }
 
             throw new \RuntimeException(
-                'Failed to read from TCP socket: empty response from device.'
+                'Failed to read from UDP socket: empty response from device.'
             );
         }
 
