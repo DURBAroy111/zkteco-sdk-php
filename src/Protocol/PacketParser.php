@@ -4,25 +4,23 @@ namespace DurbaRoy\Zkteco\Protocol;
 
 class PacketParser
 {
-    public function parseHeader(string $response): array
+    /**
+     * @return array{command:int,checksum:int,sessionId:int,replyId:int,payload:string}
+     */
+    public function parse(string $response): array
     {
         if (strlen($response) < 8) {
-            throw new \RuntimeException('Invalid response length');
+            throw new \RuntimeException('Response too short, cannot parse header');
         }
 
-        [$command, $checksum, $sessionId, $replyId] = array_values(unpack('vcommand/vchecksum/vsessionId/vreplyId', substr($response, 0, 8)));
+        $header = unpack('vcommand/vchecksum/vsessionId/vreplyId', substr($response, 0, 8));
 
         return [
-            'command'   => $command,
-            'checksum'  => $checksum,
-            'sessionId' => $sessionId,
-            'replyId'   => $replyId,
+            'command'   => $header['command'],
+            'checksum'  => $header['checksum'],
+            'sessionId' => $header['sessionId'],
+            'replyId'   => $header['replyId'],
             'payload'   => substr($response, 8),
         ];
-    }
-
-    public function payload(string $response): string
-    {
-        return substr($response, 8);
     }
 }

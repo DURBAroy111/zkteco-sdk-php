@@ -5,9 +5,9 @@ namespace DurbaRoy\Zkteco\Models;
 class FingerprintTemplate
 {
     public function __construct(
-        public string $userId,
-        public int $fingerIndex,
-        public string $templateData, // binary or base64 encoded
-        public int $flag = 1
+        public int    $pin,          // internal PIN that this template belongs to
+        public int    $fingerIndex,  // 0-9
+        public bool   $valid,        // true if template is valid
+        public string $templateData  // raw binary template bytes
     ) {}
 }
