@@ -24,15 +24,22 @@ class SocketClient
             return;
         }
 
-        $address = "udp://{$this->ip}";
+        // TCP instead of UDP:
+        $address = "tcp://{$this->ip}:{$this->port}";
         $errno   = 0;
         $errstr  = '';
 
-        $this->socket = @fsockopen($address, $this->port, $errno, $errstr, $this->timeout);
+        $this->socket = @stream_socket_client(
+            $address,
+            $errno,
+            $errstr,
+            $this->timeout,
+            STREAM_CLIENT_CONNECT
+        );
 
         if (! $this->socket) {
             throw new \RuntimeException(
-                "Unable to connect to ZKTeco device {$this->ip}:{$this->port} - [{$errno}] {$errstr}"
+                "Unable to connect to ZKTeco device {$this->ip}:{$this->port} via TCP - [{$errno}] {$errstr}"
             );
         }
 
@@ -48,7 +55,7 @@ class SocketClient
     }
 
     /**
-     * Send raw binary packet and get raw binary response.
+     * Send raw binary packet and get raw binary response (TCP).
      */
     public function send(string $packet): string
     {
@@ -56,22 +63,27 @@ class SocketClient
             $this->connect();
         }
 
-        $written = @fwrite($this->socket, $packet);
+        $total = strlen($packet);
+        $written = 0;
 
-        if ($written === false || $written !== strlen($packet)) {
-            throw new \RuntimeException('Failed to write to socket (UDP).');
+        while ($written < $total) {
+            $w = @fwrite($this->socket, substr($packet, $written));
+            if ($w === false || $w === 0) {
+                throw new \RuntimeException('Failed to write to TCP socket.');
+            }
+            $written += $w;
         }
 
-        // read first chunk of response
+        // Read 1 response frame (ZK packets are small; we can read once)
         $response = @fread($this->socket, 8192);
 
         if ($response === false || $response === '') {
             $meta = stream_get_meta_data($this->socket);
             if (!empty($meta['timed_out'])) {
-                throw new \RuntimeException('Failed to read from socket: timed out waiting for device response.');
+                throw new \RuntimeException('Failed to read from TCP socket: timed out waiting for device response.');
             }
 
-            throw new \RuntimeException('Failed to read from socket: empty response from device.');
+            throw new \RuntimeException('Failed to read from TCP socket: empty response from device.');
         }
 
         return $response;
